@@ -13,8 +13,8 @@
 #include "time.h"
 
 // RFID Pins
-#define RST_PIN  0
-#define SS_PIN   5
+#define RST_PIN  22
+#define SS_PIN   21
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
@@ -22,8 +22,8 @@ MFRC522 rfid(SS_PIN, RST_PIN);
 #define GREEN_LED 4
 #define RED_LED 12
 
-// Buzzer (PASSIVE)
-#define BUZZER_PIN 14
+// Buzzer on GPIO 2
+#define BUZZER_PIN 2
 #define BUZZER_CHANNEL 0
 
 // Card UIDs
@@ -31,8 +31,8 @@ String authorizedUID = "13005C25";
 String wrongUID = "83ACAA0D";
 
 // WiFi
-char ssid[] = "Akram iPhone";
-char pass[] = "12345678mmm";
+char ssid[] = "Hhh";
+char pass[] = "12345678";
 
 // Time zone (Algeria GMT+1)
 const char* ntpServer = "pool.ntp.org";
@@ -57,7 +57,7 @@ void setup() {
   digitalWrite(RED_LED, LOW);
 
   // Init BUZZER
-  ledcSetup(BUZZER_CHANNEL, 2000, 8);   // default Freq, 8-bit resolution
+  ledcSetup(BUZZER_CHANNEL, 2000, 8);
   ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
 
   Serial.println("System Ready...");
@@ -85,11 +85,11 @@ void sendToBlynk(String uid, String status) {
   Blynk.virtualWrite(V0, message);
 }
 
-// 🔊 PLAY SOUND FOR 0.5 SECONDS
+// 0.5s beep function
 void beep(int frequency) {
   ledcWriteTone(BUZZER_CHANNEL, frequency);
-  delay(500);         // 0.5 sec
-  ledcWriteTone(BUZZER_CHANNEL, 0);   // stop sound
+  delay(500);
+  ledcWriteTone(BUZZER_CHANNEL, 0);
 }
 
 void loop() {
@@ -112,7 +112,7 @@ void loop() {
   if (uid == authorizedUID) {
     Serial.println("ACCESS GRANTED");
 
-    beep(2000);  // 🎵 Happy tone
+    beep(2000);  // happy tone
     digitalWrite(GREEN_LED, HIGH);
     sendToBlynk(uid, "Authorized");
     delay(5000);
@@ -122,7 +122,7 @@ void loop() {
   else if (uid == wrongUID) {
     Serial.println("ACCESS REFUSED");
 
-    beep(400);  // 🚫 Low error tone
+    beep(400);  // error tone
     digitalWrite(RED_LED, HIGH);
     sendToBlynk(uid, "Acces Refusé");
     delay(5000);
@@ -132,7 +132,7 @@ void loop() {
   else {
     Serial.println("UNKNOWN CARD");
 
-    beep(300);  // ⚠ Unknown tone
+    beep(300);
     digitalWrite(RED_LED, HIGH);
     sendToBlynk(uid, "Unknown Card");
     delay(5000);
