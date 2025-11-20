@@ -1,0 +1,145 @@
+#define BLYNK_PRINT Serial
+
+#define BLYNK_TEMPLATE_ID "TMPL2gnOSHjoD"
+#define BLYNK_TEMPLATE_NAME "stade"
+#define BLYNK_AUTH_TOKEN "B1A28WCdpb6KPwLcOQ9InhdM441e0cTk"
+
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <HTTPClient.h>
+#include <BlynkSimpleEsp32.h>
+
+#include <SPI.h>
+#include <MFRC522.h>
+#include "time.h"
+
+// RFID Pins
+#define RST_PIN  22
+#define SS_PIN   21
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+// LEDs
+#define GREEN_LED 4
+#define RED_LED 12
+
+// Buzzer on GPIO 2
+#define BUZZER_PIN 2
+#define BUZZER_CHANNEL 0
+
+// UIDs
+String authorizedUID = "13005C25";
+String wrongUID = "83ACAA0D";
+
+char ssid[] = "Hhh";
+char pass[] = "12345678";
+
+// Time GMT+1
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 3600;
+const int daylightOffset_sec = 0;
+
+// Webhooks
+String webhook1 = "https://industry4.app.n8n.cloud/webhook-test/f421c269-10fc-4025-90cb-7f1b0ed2bc1a";
+String webhook2 = "https://industry4.app.n8n.cloud/webhook/f421c269-10fc-4025-90cb-7f1b0ed2bc1a";
+
+void setup() {
+  Serial.begin(115200);
+
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+  SPI.begin();
+  rfid.PCD_Init();
+
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
+
+  ledcSetup(BUZZER_CHANNEL, 2000, 8);
+  ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
+
+  Serial.println("System Ready With Webhooks...");
+}
+
+// GET DATE/TIME
+String getDateTime() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) return "Time Error";
+
+  char buffer[40];
+  strftime(buffer, sizeof(buffer), "%H:%M:%S  %d/%m/%Y", &timeinfo);
+  return String(buffer);
+}
+
+// SEND DATA TO N8N WEBHOOKS
+void sendWebhook(String uid, String status, String datetime) {
+  HTTPClient http;
+
+  String json = "{\"uid\":\"" + uid + "\",\"datetime\":\"" + datetime + "\",\"status\":\"" + status + "\"}";
+
+  // Send to TEST
+  http.begin(webhook1);
+  http.addHeader("Content-Type", "application/json");
+  int code1 = http.POST(json);
+  Serial.println("Webhook Test Response: " + String(code1));
+  http.end();
+
+  // Send to PROD
+  http.begin(webhook2);
+  http.addHeader("Content-Type", "application/json");
+  int code2 = http.POST(json);
+  Serial.println("Webhook Prod Response: " + String(code2));
+  http.end();
+}
+
+// Buzzer 0.5s
+void beep(int freq) {
+  ledcWriteTone(BUZZER_CHANNEL, freq);
+  delay(500);
+  ledcWriteTone(BUZZER_CHANNEL, 0);
+}
+
+void loop() {
+  Blynk.run();
+
+  if (!rfid.PICC_IsNewCardPresent()) return;
+  if (!rfid.PICC_ReadCardSerial()) return;
+
+  String uid = "";
+  for (byte i = 0; i < rfid.uid.size; i++) {
+    uid += String(rfid.uid.uidByte[i], HEX);
+  }
+  uid.toUpperCase();
+
+  String datetime = getDateTime();
+
+  Serial.println("Detected: " + uid);
+
+  if (uid == authorizedUID) {
+    beep(2000);
+    digitalWrite(GREEN_LED, HIGH);
+    sendToBlynk(uid, "Authorized");
+    sendWebhook(uid, "Authorized", datetime);
+    delay(5000);
+    digitalWrite(GREEN_LED, LOW);
+  }
+  else if (uid == wrongUID) {
+    beep(400);
+    digitalWrite(RED_LED, HIGH);
+    sendToBlynk(uid, "Acces Refusé");
+    sendWebhook(uid, "Acces Refusé", datetime);
+    delay(5000);
+    digitalWrite(RED_LED, LOW);
+  }
+  else {
+    beep(300);
+    digitalWrite(RED_LED, HIGH);
+    sendToBlynk(uid, "Unknown Card");
+    sendWebhook(uid, "Unknown Card", datetime);
+    delay(5000);
+    digitalWrite(RED_LED, LOW);
+  }
+
+  rfid.PICC_HaltA();
+  rfid.PCD_StopCrypto1();
+}
