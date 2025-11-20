@@ -1,0 +1,144 @@
+#define BLYNK_PRINT Serial
+
+#define BLYNK_TEMPLATE_ID "TMPL2gnOSHjoD"
+#define BLYNK_TEMPLATE_NAME "stade"
+#define BLYNK_AUTH_TOKEN "B1A28WCdpb6KPwLcOQ9InhdM441e0cTk"
+
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+
+#include <SPI.h>
+#include <MFRC522.h>
+#include "time.h"
+
+// RFID Pins
+#define RST_PIN  0
+#define SS_PIN   5
+
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+// LEDs
+#define GREEN_LED 4
+#define RED_LED 12
+
+// Buzzer (PASSIVE)
+#define BUZZER_PIN 14
+#define BUZZER_CHANNEL 0
+
+// Card UIDs
+String authorizedUID = "13005C25";
+String wrongUID = "83ACAA0D";
+
+// WiFi
+char ssid[] = "Akram iPhone";
+char pass[] = "12345678mmm";
+
+// Time zone (Algeria GMT+1)
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 3600;
+const int   daylightOffset_sec = 0;
+
+void setup() {
+  Serial.begin(115200);
+
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+
+  // Init time
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+  // Init RFID
+  SPI.begin();
+  rfid.PCD_Init();
+
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
+  digitalWrite(GREEN_LED, LOW);
+  digitalWrite(RED_LED, LOW);
+
+  // Init BUZZER
+  ledcSetup(BUZZER_CHANNEL, 2000, 8);   // default Freq, 8-bit resolution
+  ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
+
+  Serial.println("System Ready...");
+}
+
+String getDateTime() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return "Time Error";
+  }
+
+  char buffer[40];
+  strftime(buffer, sizeof(buffer), "%H:%M:%S  %d/%m/%Y", &timeinfo);
+  return String(buffer);
+}
+
+void sendToBlynk(String uid, String status) {
+  String datetime = getDateTime();
+
+  String message =
+      "UID: " + uid +
+      "\nDate/Time: " + datetime +
+      "\nStatus: " + status;
+
+  Blynk.virtualWrite(V0, message);
+}
+
+// 🔊 PLAY SOUND FOR 0.5 SECONDS
+void beep(int frequency) {
+  ledcWriteTone(BUZZER_CHANNEL, frequency);
+  delay(500);         // 0.5 sec
+  ledcWriteTone(BUZZER_CHANNEL, 0);   // stop sound
+}
+
+void loop() {
+  Blynk.run();
+
+  if (!rfid.PICC_IsNewCardPresent()) return;
+  if (!rfid.PICC_ReadCardSerial()) return;
+
+  // Read UID
+  String uid = "";
+  for (byte i = 0; i < rfid.uid.size; i++) {
+    uid += String(rfid.uid.uidByte[i], HEX);
+  }
+  uid.toUpperCase();
+
+  Serial.print("Card Detected: ");
+  Serial.println(uid);
+
+  // AUTHORIZED CARD
+  if (uid == authorizedUID) {
+    Serial.println("ACCESS GRANTED");
+
+    beep(2000);  // 🎵 Happy tone
+    digitalWrite(GREEN_LED, HIGH);
+    sendToBlynk(uid, "Authorized");
+    delay(5000);
+    digitalWrite(GREEN_LED, LOW);
+  }
+  // WRONG CARD
+  else if (uid == wrongUID) {
+    Serial.println("ACCESS REFUSED");
+
+    beep(400);  // 🚫 Low error tone
+    digitalWrite(RED_LED, HIGH);
+    sendToBlynk(uid, "Acces Refusé");
+    delay(5000);
+    digitalWrite(RED_LED, LOW);
+  }
+  // UNKNOWN CARD
+  else {
+    Serial.println("UNKNOWN CARD");
+
+    beep(300);  // ⚠ Unknown tone
+    digitalWrite(RED_LED, HIGH);
+    sendToBlynk(uid, "Unknown Card");
+    delay(5000);
+    digitalWrite(RED_LED, LOW);
+  }
+
+  rfid.PICC_HaltA();
+  rfid.PCD_StopCrypto1();
+}
